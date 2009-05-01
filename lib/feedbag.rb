@@ -50,7 +50,7 @@ module Feedbag
 		end
 	end
 
-	def self.find(url, args = {})
+	def self.find(url, args = {}, debug = false)
 		$feeds = []
 
 		url_uri = URI.parse(url)
@@ -58,7 +58,7 @@ module Feedbag
 		if url_uri.scheme.nil?
 		  url = "http://#{url_uri.to_s}"
 		elsif url_uri.scheme == "feed"
-		  return self.add_feed(url_uri.to_s.sub(/^feed:\/\//, 'http://'), nil)
+		  return self.add_feed(url_uri.to_s.sub(/^feed:\/\//, 'http://'), nil, nil, debug)
 		else
 		  url = url_uri.to_s
 		end
@@ -70,22 +70,22 @@ module Feedbag
 	  		require "feed_validator"
 		  	v = W3C::FeedValidator.new
 			  v.validate_url(url)
-  			return self.add_feed(url, nil) if v.valid?
+  			return self.add_feed(url, nil, nil, debug) if v.valid?
 	  	rescue LoadError
 		  	# scoo
   		rescue REXML::ParseException
 	  	  # usually indicates timeout
 		    # TODO: actually find out timeout. use Terminator?
-		    $stderr.puts "Feed looked like feed but might not have passed validation or timed out"
+		    $stderr.puts "Feed looked like feed but might not have passed validation or timed out" if debug
       rescue => ex
-	  		$stderr.puts "#{ex.class} error ocurred with: `#{url}': #{ex.message}"
+	  		$stderr.puts "#{ex.class} error ocurred with: `#{url}': #{ex.message}" if debug
 		  end
     end
 
 		begin
 			html = open(url) do |f|
 				if @content_types.include?(f.content_type.downcase)
-					return self.add_feed(url, nil)
+					return self.add_feed(url, nil, nil, debug)
 				end
 
 				doc = Hpricot(f.read)
@@ -100,7 +100,7 @@ module Feedbag
 				(doc/"link").each do |l|
 					next unless l["rel"]
 					if l["type"] and @content_types.include?(l["type"].downcase.strip) and (l["rel"].downcase =~ /alternate/i or l["rel"] == "service.feed")
-						self.add_feed(l["href"], url, $base_uri)
+						self.add_feed(l["href"], url, $base_uri, debug)
 					end
 				end
 
@@ -108,27 +108,27 @@ module Feedbag
   				(doc/"a").each do |a|
 	  				next unless a["href"]
 		  			if self.looks_like_feed?(a["href"]) and (a["href"] =~ /\// or a["href"] =~ /#{url_uri.host}/)
-			  			self.add_feed(a["href"], url, $base_uri)
+			  			self.add_feed(a["href"], url, $base_uri, debug)
 				  	end
   				end
 
 	  			(doc/"a").each do |a|
 		  			next unless a["href"]
 			  		if self.looks_like_feed?(a["href"])
-				  		self.add_feed(a["href"], url, $base_uri)
+				  		self.add_feed(a["href"], url, $base_uri, debug)
 					  end
   				end
         end
 
 			end
 		rescue Timeout::Error => err
-			$stderr.puts "Timeout error ocurred with `#{url}: #{err}'"
+			$stderr.puts "Timeout error ocurred with `#{url}: #{err}'" if debug
 		rescue OpenURI::HTTPError => the_error
-			$stderr.puts "Error ocurred with `#{url}': #{the_error}"
+			$stderr.puts "Error ocurred with `#{url}': #{the_error}" if debug
 		rescue SocketError => err
-			$stderr.puts "Socket error ocurred with: `#{url}': #{err}"
+			$stderr.puts "Socket error ocurred with: `#{url}': #{err}" if debug
 		rescue => ex
-			$stderr.puts "#{ex.class} error ocurred with: `#{url}': #{ex.message}"
+			$stderr.puts "#{ex.class} error ocurred with: `#{url}': #{ex.message}" if debug
 		ensure
 			return $feeds
 		end
@@ -143,7 +143,7 @@ module Feedbag
 		end
 	end
 
-	def self.add_feed(feed_url, orig_url, base_uri = nil)
+	def self.add_feed(feed_url, orig_url, base_uri = nil, debug = false)
 		# puts "#{feed_url} - #{orig_url}"
 		url = feed_url.sub(/^feed:/, '').strip
 
@@ -155,8 +155,7 @@ module Feedbag
 		begin
 			uri = URI.parse(url)
 		rescue
-			puts "Error with `#{url}'"
-			exit 1
+			puts "Error with `#{url}'" and return if debug
 		end
 		unless uri.absolute?
 			orig = URI.parse(orig_url)
